@@ -11,7 +11,6 @@ import {
   makeWASocket,
   useMultiFileAuthState as createAuthState,
 } from "@whiskeysockets/baileys";
-import pino from "pino";
 import type {
   AuthenticationCreds,
   SignalDataTypeMap,
@@ -31,15 +30,46 @@ const logsFile = "logs.json";
 const configFile = "config.json";
 const authDir = path.join(dataDirectory, "auth");
 const LOGGED_OUT_STATUS = 401;
-const baseLogger = pino({
-  level: process.env.NODE_ENV === "production" ? "info" : "silent",
-  transport:
-    process.env.NODE_ENV === "production"
-      ? undefined
-      : {
-          targets: [],
-        },
-});
+type SimpleLogger = {
+  info: (...args: unknown[]) => void;
+  warn: (...args: unknown[]) => void;
+  error: (...args: unknown[]) => void;
+  debug: (...args: unknown[]) => void;
+  child: (bindings: Record<string, unknown>) => SimpleLogger;
+};
+
+function createLogger(bindings: Record<string, unknown> = {}): SimpleLogger {
+  const isProd = process.env.NODE_ENV === "production";
+  const log = (
+    level: "info" | "warn" | "error" | "debug",
+    args: unknown[]
+  ) => {
+    if (level === "debug" && isProd) return;
+    const prefix = Object.keys(bindings).length
+      ? `[${Object.entries(bindings)
+          .map(([key, value]) => `${key}=${value}`)
+          .join(" ")}]`
+      : "";
+    const consoleRecord = console as Record<
+      string,
+      (...consoleArgs: unknown[]) => void
+    >;
+    const target =
+      level === "warn" ? console.warn : consoleRecord[level] ?? console.log;
+    target(prefix, ...args);
+  };
+
+  return {
+    info: (...args) => log("info", args),
+    warn: (...args) => log("warn", args),
+    error: (...args) => log("error", args),
+    debug: (...args) => log("debug", args),
+    child: (childBindings: Record<string, unknown>) =>
+      createLogger({ ...bindings, ...childBindings }),
+  };
+}
+
+const baseLogger = createLogger();
 
 const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
 
