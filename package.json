@@ -16,7 +16,8 @@
     "qrcode": "^1.5.4",
     "react": "19.2.0",
     "react-dom": "19.2.0",
-    "pino": "^9.5.0"
+    "pino": "^9.5.0",
+    "why-is-node-running": "^3.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

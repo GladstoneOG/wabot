@@ -7,6 +7,7 @@ import {
   Browsers,
   type WASocket,
   fetchLatestBaileysVersion,
+  getUrlInfo,
   makeWASocket,
   useMultiFileAuthState as createAuthState,
 } from "@whiskeysockets/baileys";
@@ -153,10 +154,58 @@ class WhatsAppManager {
     if (!url) return undefined;
 
     try {
-      return await this.socket.generateLinkPreview(url);
+      const preview = await this.socket.generateLinkPreview(message);
+      if (preview) {
+        return preview;
+      }
     } catch (error) {
-      console.warn("Failed to build link preview", error);
-      return undefined;
+      console.warn("generateLinkPreview failed", error);
+    }
+
+    try {
+      const fallback = (await getUrlInfo(url, {
+        fetchOpts: { timeout: 7000 },
+        uploadImage: this.socket.waUploadToServer,
+        logger: baseLogger,
+      })) as LinkPreviewData | undefined;
+      if (fallback) {
+        return fallback;
+      }
+    } catch (error) {
+      console.warn("Fallback link preview failed", error);
+    }
+
+    return undefined;
+  }
+
+  private cloneLinkPreview(preview: LinkPreviewData): LinkPreviewData {
+    try {
+      return structuredClone(preview);
+    } catch {
+      const clone: LinkPreviewData = { ...preview };
+      if (preview.jpegThumbnail) {
+        clone.jpegThumbnail = Buffer.from(preview.jpegThumbnail);
+      }
+      if (preview.highQualityThumbnail) {
+        const hq = preview.highQualityThumbnail;
+        clone.highQualityThumbnail = {
+          ...hq,
+        };
+        if (hq.jpegThumbnail) {
+          clone.highQualityThumbnail.jpegThumbnail = Buffer.from(
+            hq.jpegThumbnail
+          );
+        }
+        if (hq.fileSha256) {
+          clone.highQualityThumbnail.fileSha256 = Buffer.from(hq.fileSha256);
+        }
+        if (hq.fileEncSha256) {
+          clone.highQualityThumbnail.fileEncSha256 = Buffer.from(
+            hq.fileEncSha256
+          );
+        }
+      }
+      return clone;
     }
   }
 
@@ -229,6 +278,8 @@ class WhatsAppManager {
         printQRInTerminal: false,
         logger: baseLogger.child({ class: "baileys" }),
         browser: Browsers.macOS("Chrome"),
+        generateHighQualityLinkPreview: true,
+        linkPreviewImageThumbnailWidth: 320,
       });
       this.socket.ev.on("creds.update", async () => {
         if (!saveCreds) return;
@@ -468,7 +519,7 @@ class WhatsAppManager {
         try {
           const content: Record<string, unknown> = { text: message };
           if (linkPreview) {
-            content.linkPreview = linkPreview;
+            content.linkPreview = this.cloneLinkPreview(linkPreview);
           }
           await socket.sendMessage(jid, content);
           success += 1;
