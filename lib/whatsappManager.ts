@@ -33,6 +33,12 @@ const authDir = path.join(dataDirectory, "auth");
 const LOGGED_OUT_STATUS = 401;
 const baseLogger = pino({
   level: process.env.NODE_ENV === "production" ? "info" : "silent",
+  transport:
+    process.env.NODE_ENV === "production"
+      ? undefined
+      : {
+          targets: [],
+        },
 });
 
 const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
