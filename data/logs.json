@@ -1,3 +1,35 @@
 {
-  "entries": []
+  "entries": [
+    {
+      "id": "1e01bce9-81ec-4193-a758-433d65bfbf17",
+      "timestamp": "2025-12-05T09:24:47.647Z",
+      "recipients": [
+        "6282167941319",
+        "6285173343569"
+      ],
+      "success": 2,
+      "failed": 0,
+      "messagePreview": "Ho ho ho! 🎅🎄\nOur Christmas hampers are ready — filled with your favorite snacks and festive treats 🍿🎁\n\nClick here to"
+    },
+    {
+      "id": "ed400944-5fa9-4b76-9ae3-86eace21387d",
+      "timestamp": "2025-12-05T09:24:12.484Z",
+      "recipients": [
+        "6282167941319"
+      ],
+      "success": 1,
+      "failed": 0,
+      "messagePreview": "Ho ho ho! 🎅🎄\nOur Christmas hampers are ready — filled with your favorite snacks and festive treats 🍿🎁\n\nClick here to"
+    },
+    {
+      "id": "0bbe1181-5df9-403f-a0c0-8b8ffc59d648",
+      "timestamp": "2025-12-05T09:23:56.460Z",
+      "recipients": [
+        "6282167941319"
+      ],
+      "success": 1,
+      "failed": 0,
+      "messagePreview": "woi"
+    }
+  ]
 }

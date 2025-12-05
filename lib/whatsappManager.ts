@@ -5,7 +5,6 @@ import { promises as fs } from "fs";
 import QRCode from "qrcode";
 import {
   Browsers,
-  DisconnectReason,
   type WASocket,
   fetchLatestBaileysVersion,
   makeWASocket,
@@ -30,6 +29,7 @@ const defaultStoredConfig: StoredConfig = {
 const logsFile = "logs.json";
 const configFile = "config.json";
 const authDir = path.join(dataDirectory, "auth");
+const LOGGED_OUT_STATUS = 401;
 const baseLogger = pino({
   level: process.env.NODE_ENV === "production" ? "info" : "silent",
 });
@@ -42,8 +42,6 @@ type LoginUpdate =
   | { type: "qr"; qr: string }
   | { type: "connected" }
   | { type: "logged-out" };
-
-type BroadcastTrigger = "manual" | "scheduled";
 
 type ManagerStatus = {
   connected: boolean;
@@ -272,11 +270,12 @@ class WhatsAppManager {
     if (update.connection === "close") {
       this.status = { connected: false, hasAuth: this.status.hasAuth };
       this.socket = null;
-      const error = update.lastDisconnect?.error as {
-        output?: { statusCode?: number };
-      };
-      const statusCode = error?.output?.statusCode;
-      if (statusCode === DisconnectReason.loggedOut) {
+      const statusCode = (
+        update.lastDisconnect?.error as {
+          output?: { statusCode?: number };
+        }
+      )?.output?.statusCode;
+      if (statusCode === LOGGED_OUT_STATUS) {
         await this.clearAuth();
         this.emitLoginUpdate({ type: "logged-out" });
       } else {
@@ -327,7 +326,7 @@ class WhatsAppManager {
       if (this.loginQr) {
         return {
           status: "qr",
-          qrDataUrl: await QRCode.toDataURL(this.loginQr, { scale: 8 }),
+          qrDataUrl: await this.renderQr(this.loginQr),
         };
       }
 
@@ -335,7 +334,7 @@ class WhatsAppManager {
       if (update.type === "qr") {
         return {
           status: "qr",
-          qrDataUrl: await QRCode.toDataURL(update.qr, { scale: 8 }),
+          qrDataUrl: await this.renderQr(update.qr),
         };
       }
 
@@ -345,12 +344,20 @@ class WhatsAppManager {
 
       return {
         status: "qr",
-        qrDataUrl: await QRCode.toDataURL(this.loginQr ?? "", { scale: 8 }),
+        qrDataUrl: await this.renderQr(this.loginQr ?? ""),
       };
     } catch (error) {
       console.error("requestLogin failed", error);
       throw error;
     }
+  }
+
+  private async renderQr(input: string) {
+    const trimmed = input.trim();
+    if (!trimmed) {
+      throw new Error("QR payload missing");
+    }
+    return QRCode.toDataURL(trimmed, { scale: 8 });
   }
 
   async logout() {
@@ -416,6 +423,84 @@ class WhatsAppManager {
     };
 
     await writeJson(configFile, safeConfig);
+  }
+
+  private async sendBroadcast(trigger: "manual" | "scheduled") {
+    if (this.sending) {
+      throw new Error("A broadcast is already in progress");
+    }
+
+    if (!this.status.connected) {
+      throw new Error("Not connected to WhatsApp");
+    }
+
+    const recipients = this.config.recipients;
+    const message = this.config.message.trim();
+    if (recipients.length === 0) {
+      throw new Error("No recipients configured");
+    }
+    if (!message) {
+      throw new Error("Message is empty");
+    }
+
+    await this.initSocket();
+    const socket = this.socket;
+    if (!socket) {
+      throw new Error("WhatsApp socket unavailable");
+    }
+
+    this.sending = true;
+    const minDelay = Math.max(0, this.config.minDelaySec);
+    const maxDelay = Math.max(minDelay, this.config.maxDelaySec);
+    const linkPreview = this.containsUrl(message)
+      ? await this.buildLinkPreview(message)
+      : undefined;
+
+    let success = 0;
+    let failed = 0;
+
+    try {
+      for (let index = 0; index < recipients.length; index += 1) {
+        const recipient = recipients[index];
+        const jid = recipient.includes("@")
+          ? recipient
+          : `${recipient}@s.whatsapp.net`;
+        try {
+          const content: Record<string, unknown> = { text: message };
+          if (linkPreview) {
+            content.linkPreview = linkPreview;
+          }
+          await socket.sendMessage(jid, content);
+          success += 1;
+        } catch (error) {
+          failed += 1;
+          console.warn("Failed to send message", { recipient, error });
+        }
+
+        if (index < recipients.length - 1 && maxDelay > 0) {
+          const waitSeconds =
+            minDelay === maxDelay
+              ? minDelay
+              : Math.random() * (maxDelay - minDelay) + minDelay;
+          await delay(waitSeconds * 1000);
+        }
+      }
+    } finally {
+      this.sending = false;
+    }
+
+    await this.addLog({
+      recipients,
+      success,
+      failed,
+      messagePreview: message.slice(0, 120),
+    });
+
+    if (trigger === "manual" && this.timer) {
+      this.nextRun = Date.now() + this.config.intervalMinutes * 60 * 1000;
+    }
+
+    return { success, failed };
   }
 
   async sendNow() {
