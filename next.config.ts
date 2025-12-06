@@ -87,6 +87,7 @@ if (fs.promises?.realpath) {
 const nextConfig: NextConfig = {
   reactCompiler: true,
   outputFileTracingRoot: projectRoot,
+  serverExternalPackages: ["pino", "thread-stream", "@whiskeysockets/baileys"],
   turbopack: {
     resolveAlias: aliasMap,
   },

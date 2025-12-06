@@ -13,6 +13,7 @@ import {
 } from "@whiskeysockets/baileys";
 import type {
   AuthenticationCreds,
+  AuthenticationState,
   SignalDataTypeMap,
 } from "@whiskeysockets/baileys";
 import { dataDirectory, readJson, writeJson } from "./storage";
@@ -31,6 +32,8 @@ const configFile = "config.json";
 const authDir = path.join(dataDirectory, "auth");
 const LOGGED_OUT_STATUS = 401;
 type SimpleLogger = {
+  level: string;
+  trace: (...args: unknown[]) => void;
   info: (...args: unknown[]) => void;
   warn: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
@@ -41,16 +44,16 @@ type SimpleLogger = {
 function createLogger(bindings: Record<string, unknown> = {}): SimpleLogger {
   const isProd = process.env.NODE_ENV === "production";
   const log = (
-    level: "info" | "warn" | "error" | "debug",
+    level: "info" | "warn" | "error" | "debug" | "trace",
     args: unknown[]
   ) => {
-    if (level === "debug" && isProd) return;
+    if ((level === "debug" || level === "trace") && isProd) return;
     const prefix = Object.keys(bindings).length
       ? `[${Object.entries(bindings)
           .map(([key, value]) => `${key}=${value}`)
           .join(" ")}]`
       : "";
-    const consoleRecord = console as Record<
+    const consoleRecord = console as unknown as Record<
       string,
       (...consoleArgs: unknown[]) => void
     >;
@@ -60,6 +63,8 @@ function createLogger(bindings: Record<string, unknown> = {}): SimpleLogger {
   };
 
   return {
+    level: "info",
+    trace: (...args) => log("trace", args),
     info: (...args) => log("info", args),
     warn: (...args) => log("warn", args),
     error: (...args) => log("error", args),
@@ -73,7 +78,7 @@ const baseLogger = createLogger();
 
 const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
 
-type LinkPreviewData = Awaited<ReturnType<WASocket["generateLinkPreview"]>>;
+type LinkPreviewData = any; // Awaited<ReturnType<WASocket["generateLinkPreview"]>>;
 
 type LoginUpdate =
   | { type: "qr"; qr: string }
@@ -94,10 +99,7 @@ class WhatsAppManager {
   private loginResolvers: Array<(value: LoginUpdate) => void> = [];
   private readyPromise: Promise<void> | null = null;
   private authState?: {
-    state: {
-      creds: AuthenticationCreds;
-      keys: SignalDataTypeMap;
-    };
+    state: AuthenticationState;
     saveCreds: () => Promise<void>;
   };
   private config: BroadcastConfig = {
@@ -190,7 +192,7 @@ class WhatsAppManager {
     if (!url) return undefined;
 
     try {
-      const preview = await this.socket.generateLinkPreview(message);
+      const preview = await (this.socket as any).generateLinkPreview(message);
       if (preview) {
         return preview;
       }
@@ -203,6 +205,7 @@ class WhatsAppManager {
         fetchOpts: { timeout: 7000 },
         uploadImage: this.socket.waUploadToServer,
         logger: baseLogger,
+        thumbnailWidth: 320,
       })) as LinkPreviewData | undefined;
       if (fallback) {
         return fallback;
@@ -557,7 +560,7 @@ class WhatsAppManager {
           if (linkPreview) {
             content.linkPreview = this.cloneLinkPreview(linkPreview);
           }
-          await socket.sendMessage(jid, content);
+          await socket.sendMessage(jid, content as any);
           success += 1;
         } catch (error) {
           failed += 1;
